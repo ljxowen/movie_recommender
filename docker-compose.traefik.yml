@@ -1,0 +1,99 @@
+services:
+  traefik:
+    image: traefik:v2.3
+    ports:
+      # Listen on port 80, default for HTTP, necessary to redirect to HTTPS
+      - 80:80
+      # Listen on port 443, default for HTTPS
+      - 443:443
+    restart: always
+    labels:
+      # 启用 Traefik 代理
+      - traefik.enable=true
+      # 指定 Traefik 代理使用的网络
+      - traefik.docker.network=traefik-public
+      # 定义服务端口
+      - traefik.http.services.traefik-dashboard.loadbalancer.server.port=8080
+      # 定义 HTTP 路由规则
+      - traefik.http.routers.traefik-dashboard-http.entrypoints=http
+      - traefik.http.routers.traefik-dashboard-http.rule=Host(`traefik.${DOMAIN}`)
+      # 定义 HTTPS 路由规则
+      - traefik.http.routers.traefik-dashboard-https.entrypoints=https
+      - traefik.http.routers.traefik-dashboard-https.rule=Host(`traefik.${DOMAIN}`)
+      - traefik.http.routers.traefik-dashboard-https.tls=true
+      # 使用 Let's Encrypt 证书解析器
+      - traefik.http.routers.traefik-dashboard-https.tls.certresolver=le
+      # 使用 Traefik 内部 API 服务
+      - traefik.http.routers.traefik-dashboard-https.service=api@internal
+      # 配置重定向中间件，将 HTTP 重定向到 HTTPS
+      - traefik.http.middlewares.https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
+      # 为 HTTP 路由器设置中间件以重定向到 HTTPS
+      - traefik.http.routers.traefik-dashboard-http.middlewares=https-redirect
+      # 配置基本身份验证中间件
+      - traefik.http.middlewares.admin-auth.basicauth.users=${USERNAME}:${HASHED_PASSWORD}
+      # 为 HTTPS 路由器设置基本身份验证中间件
+      - traefik.http.routers.traefik-dashboard-https.middlewares=admin-auth
+    volumes:
+      # Add Docker as a mounted volume, so that Traefik can read the labels of other services
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Mount the volume to store the certificates
+      - traefik-public-certificates:/certificates
+    command:
+      # Enable Docker in Traefik, so that it reads labels from Docker services
+      - --providers.docker
+      # Do not expose all Docker services, only the ones explicitly exposed
+      - --providers.docker.exposedbydefault=false
+      # Create an entrypoint "http" listening on port 80
+      - --entrypoints.http.address=:80
+      # Create an entrypoint "https" listening on port 443
+      - --entrypoints.https.address=:443
+      # Create the certificate resolver "le" for Let's Encrypt, uses the environment variable EMAIL
+      - --certificatesresolvers.le.acme.email=${EMAIL?Variable not set}
+      # Store the Let's Encrypt certificates in the mounted volume
+      - --certificatesresolvers.le.acme.storage=/certificates/acme.json
+      # Use the TLS Challenge for Let's Encrypt
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      # Enable the access log, with HTTP requests
+      - --accesslog
+      # Enable the Traefik log, for configurations and errors
+      - --log
+      # Enable the Dashboard and API
+      - --api
+    networks:
+      # Use the public network created to be shared between Traefik and
+      # any other service that needs to be publicly available with HTTPS
+      - traefik-public
+
+volumes:
+  # Create a volume to store the certificates, even if the container is recreated
+  traefik-public-certificates:
+
+networks:
+  # Use the previously created public network "traefik-public", shared with other
+  # services that need to be publicly available via this Traefik
+  traefik-public:
+    external: true
+
+
+
+
+# labels
+# 未启用 Traefik
+# 如果不设置 traefik.enable=true 标签，Traefik 将不会代理该服务。
+# 未指定网络
+# 如果不指定 traefik.docker.network，Traefik 将使用默认的 Docker 网络，可能无法正确路由请求。
+# 未定义服务端口
+# 如果不设置 traefik.http.services.<service>.loadbalancer.server.port，Traefik 将不知道要代理到服务的哪个端口，可能导致无法访问该服务。
+# 未定义路由规则
+# 如果不定义 traefik.http.routers.<router>.rule，Traefik 将无法根据请求的主机名或路径进行路由，可能导致请求无法正确路由到目标服务。
+# 未定义入口点
+# 如果不设置 traefik.http.routers.<router>.entrypoints，Traefik 将无法知道哪些入口点应该处理请求，可能导致请求被拒绝。
+# 未启用 TLS
+# 如果不设置 traefik.http.routers.<router>.tls=true，Traefik 将不会为该路由启用 TLS，即使请求使用 HTTPS 也不会进行加密。
+# 未配置证书解析器
+# 如果不设置 traefik.http.routers.<router>.tls.certresolver=<resolver>，Traefik 将不会自动获取和管理 SSL 证书。
+# 未配置重定向
+# 如果不设置重定向中间件标签，HTTP 请求将不会自动重定向到 HTTPS，可能导致不安全的连接。
+# 未配置身份验证
+# 如果不设置身份验证中间件标签，访问服务将不会受到保护，任何人都可以访问。
